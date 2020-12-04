@@ -53,16 +53,38 @@ class Sentiment:
 
         self.submissions = pd.DataFrame(self.submissions)
 
+    def expandComments(self, morecomments):
+        comments = morecomments.comments()
+        if isinstance(comments, MoreComments):
+            return self.expandComments(comments)
+        
+        return comments
+
+    def getCommentsTree(self, morecomments):
+        comments = []
+        count = 5
+        for comment in morecomments:
+            if (count == 0):
+                break
+            post = self.reddit.comment(comment.id)
+            comments.append(post.body)
+            count -= 1
+        
+        return comments
+
     def getComments(self):
         self.comments = {}
 
         for i in range(len(self.submissions)):
             post = self.submissions.loc[i]
-            submission = self.reddit.submission(url=post['url'])
-            submission.comment_limit = 5
+            submission = self.reddit.submission(id=post['id'])
+            submission.comment_limit = 3
             top_comments = submission.comments
             for comment in top_comments:
                 if isinstance(comment, MoreComments):
+                    comments = self.expandComments(comment)
+                    comments = self.getCommentsTree(comments)
+                    self.comments[post['id']] = comments
                     continue
                 if post['id'] in self.comments:
                     self.comments[post['id']].append(comment.body)
@@ -70,7 +92,12 @@ class Sentiment:
                     self.comments[post['id']] = []
                     self.comments[post['id']].append(comment.body)
 
-        print(self.comments)
+    def addComments(self):
+
+        for ind in range(len(self.submissions['id'])):
+            post_id = self.submissions['id'][ind]
+            comments = self.comments[post_id]
+            self.submissions['comments'] = comments
 
     def computeSentiment(self):
         sia = SentimentIntensityAnalyzer()
@@ -123,7 +150,7 @@ if __name__ == "__main__":
     # main()
     auth_file = '../auth.json'
     sub = 'learnpython'
-    limit = 1
+    limit = 3
     
     with open(auth_file) as auth_param:
         param = json.load(auth_param)
