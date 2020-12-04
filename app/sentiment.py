@@ -7,14 +7,10 @@ import pandas as pd
 import datetime as dt
 
 import praw
+from praw.models import MoreComments
 import pika
 
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from nltk.corpus import wordnet
-from nltk import pos_tag
-from nltk.corpus import stopwords
-from nltk.tokenize import WhitespaceTokenizer
-from nltk.stem import WordNetLemmatizer
 
 ## RabbitMQ connection
 rabbitMQHost = os.getenv("RABBITMQ_HOST") or "localhost"
@@ -45,6 +41,7 @@ class Sentiment:
             "title": [],
             "body": [],
             "comm_num": [],
+            "url": []
         }
 
         for submission in self.reddit.subreddit(self.sub).top(limit=self.limit):
@@ -52,8 +49,28 @@ class Sentiment:
             self.submissions['title'].append(submission.title)
             self.submissions['body'].append(submission.selftext)
             self.submissions['comm_num'].append(submission.num_comments)
+            self.submissions['url'].append(submission.url)
 
         self.submissions = pd.DataFrame(self.submissions)
+
+    def getComments(self):
+        self.comments = {}
+
+        for i in range(len(self.submissions)):
+            post = self.submissions.loc[i]
+            submission = self.reddit.submission(url=post['url'])
+            submission.comment_limit = 5
+            top_comments = submission.comments
+            for comment in top_comments:
+                if isinstance(comment, MoreComments):
+                    continue
+                if post['id'] in self.comments:
+                    self.comments[post['id']].append(comment.body)
+                else:
+                    self.comments[post['id']] = []
+                    self.comments[post['id']].append(comment.body)
+
+        print(self.comments)
 
     def computeSentiment(self):
         sia = SentimentIntensityAnalyzer()
@@ -61,13 +78,15 @@ class Sentiment:
 
         for i in range(len(self.submissions)):
             post = self.submissions.loc[i]
-            score = sia.polarity_scores(post['title'])
-            score['headline'] = post['title']
+            text = post['title']
+            score = sia.polarity_scores(text)
+            score['headline'] = text
             sentiments.append(score)
 
     def worker(self):
         self.connectReddit()
         self.getSubmissions()
+        self.getComments()
         self.computeSentiment()
 
 def getRabbitMQ():
@@ -104,7 +123,7 @@ if __name__ == "__main__":
     # main()
     auth_file = '../auth.json'
     sub = 'learnpython'
-    limit = 10
+    limit = 1
     
     with open(auth_file) as auth_param:
         param = json.load(auth_param)
