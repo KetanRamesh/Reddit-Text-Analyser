@@ -8,7 +8,7 @@ import datetime as dt
 
 import praw
 from praw.models import MoreComments
-from detoxify import Detoxify
+# from detoxify import Detoxify
 
 import pika
 
@@ -89,19 +89,19 @@ class Sentiment:
         
         print(senti_count)
 
-    def getToxicity(self):
-        toxic_count = {
-            "very_toxic": 0,
-            "toxic": 0,
-            "hard_to_say": 0,
-            "not_toxic": 0
-        }
+    # def getToxicity(self):
+    #     toxic_count = {
+    #         "very_toxic": 0,
+    #         "toxic": 0,
+    #         "hard_to_say": 0,
+    #         "not_toxic": 0
+    #     }
 
-        for i in range(len(self.submissions)):
-            post = self.submissions.loc[i]
-            text = post['title']
-            label = Detoxify('original').predict(text)
-            print(label)
+    #     for i in range(len(self.submissions)):
+    #         post = self.submissions.loc[i]
+    #         text = post['title']
+    #         label = Detoxify('original').predict(text)
+    #         print(label)
 
     def worker(self):
         self.connectReddit()
@@ -123,15 +123,16 @@ def getRabbitMQ():
 
 def callback(ch, method, properties, body):
     body = jsonpickle.decode(body)
+    print(body)
 
 def main():
-    _, channel = getRabbitMQ()
-    channel.exchange_declare(exchange='sentimentWorker', exchange_type='direct')
+    connection, channel = getRabbitMQ()
+    channel.exchange_declare(exchange='redditHandle', exchange_type='direct')
     result = channel.queue_declare(queue='worker_sentiment', durable=True)
     queue_name = result.method.queue
 
     channel.queue_bind(
-        exchange='sentimentWorker', 
+        exchange='redditHandle', 
         queue=queue_name,
         routing_key='worker_sentiment'
     )
@@ -140,13 +141,13 @@ def main():
     channel.start_consuming()
 
 if __name__ == "__main__":
-    # main()
-    auth_file = '../auth.json'
-    sub = 'learnpython'
-    limit = 100
+    main()
+    # auth_file = '../auth.json'
+    # sub = 'learnpython'
+    # limit = 100
     
-    with open(auth_file) as auth_param:
-        param = json.load(auth_param)
+    # with open(auth_file) as auth_param:
+    #     param = json.load(auth_param)
     
-    sentiment = Sentiment(param, sub, limit)
-    sentiment.worker()
+    # sentiment = Sentiment(param, sub, limit)
+    # sentiment.worker()
