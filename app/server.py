@@ -9,8 +9,6 @@ import hashlib, requests
 import json
 import pandas as pd
 
-from google.cloud import datastore
-
 import praw
 
 redisHost = os.getenv("REDIS_HOST") or "localhost"
@@ -23,7 +21,12 @@ auth_file = '../auth.json'
 with open(auth_file) as param:
     auth_param = json.load(param)
 
-limit = 1
+## Databases
+db_posts = redis.Redis(host=redisHost, db=1)
+db_sentiment = redis.Redis(host=redisHost, db=2)
+db_keywords = redis.Redis(host=redisHost, db=3)
+
+limit = 3
 
 def get_rabbitMQ():
     try:
@@ -35,10 +38,6 @@ def get_rabbitMQ():
         return
 
     return connection, channel
-
-def get_datastore():
-    datastore_client = datastore.Client(projectId)
-    return datastore_client
 
 def connect_reddit():
     try:
@@ -69,18 +68,6 @@ def get_submissions(sub, limit):
     submissions = pd.DataFrame(submissions)
     return submissions
 
-def store_submissions(submissions):
-    datastore_client = get_datastore()
-    # try:
-    key = datastore_client.key('Posts')
-    post_entity = datastore.Entity(key=key)
-    for ind in range(len(submissions)):
-        post = submissions.loc[ind]
-        post_entity[post['id']] = post['title']
-        datastore_client.put(post_entity)
-    # except:
-    #     print('Datastore problems')
-
 ## Flask app routes
 @app.route('/', methods=['GET'])
 def hello():
@@ -89,42 +76,52 @@ def hello():
 @app.route('/sentiment/<string:sub_name>', methods=['GET'])
 def sentiment(sub_name):
     connection, channel = get_rabbitMQ()
-    submissions = get_submissions(sub_name, limit)
-    store_submissions(submissions)
+    if db_sentiment.exists(sub_name):
+        message = {
+            'sentiment': db_sentiment.smembers(sub_name)
+        }
+        message = jsonpickle.encode(message)
+        return Response(response=message, status=200, mimetype='application/json')
+    elif db_posts.exists(sub_name):
+        message = {
+            'sub_name': sub_name
+        }
 
-    message = {
-        'sub_name': sub_name
-    }
-
-    message = jsonpickle.encode(message)
-    channel.basic_publish(
-        exchange='redditHandle',
-        routing_key='worker_sentiment',
-        body=message
-    )
-
-    connection.close()
-    return Response(response=message, status=200, mimetype='application/json')
+        message = jsonpickle.encode(message)
+        channel.basic_publish(
+            exchange='redditHandle',
+            routing_key='worker_sentiment',
+            body=message
+        )
+        connection.close()
+        return Response(response=message, status=200, mimetype='application/json')
+    else:
+        print('Post submissions to reddit')
 
 @app.route('/keywords/<string:sub_name>', methods=['GET'])
 def keywords(sub_name):
     connection, channel = get_rabbitMQ()
-    submissions = get_submissions(sub_name, limit)
-    store_submissions(submissions)
+    if db_keywords.exists(sub_name):
+        message = {
+            'keywords': db_keywords.smembers(sub_name)
+        }
+        message = jsonpickle.encode(message)
+        return Response(response=message, status=200, mimetype='application/json')
+    elif db_posts.exists(sub_name):
+        message = {
+            'sub_name': sub_name
+        }
 
-    message = {
-        'sub_name': sub_name
-    }
-
-    message = jsonpickle.encode(message)
-    channel.basic_publish(
-        exchange='redditHandle',
-        routing_key='worker_keywords',
-        body=message
-    )
-
-    connection.close()
-    return Response(response=message, status=200, mimetype='application/json')
+        message = jsonpickle.encode(message)
+        channel.basic_publish(
+            exchange='redditHandle',
+            routing_key='worker_keywords',
+            body=message
+        )
+        connection.close()
+        return Response(response=message, status=200, mimetype='application/json')
+    else:
+        print('Post submissions to reddit')
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
