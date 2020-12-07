@@ -10,12 +10,18 @@ import praw
 from praw.models import MoreComments
 # from detoxify import Detoxify
 
-import pika
+import pika, redis
 
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 ## RabbitMQ connection
 rabbitMQHost = os.getenv("RABBITMQ_HOST") or "localhost"
+redisHost = os.getenv("REDIS_HOST") or "localhost"
+
+print("Connecting to rabbitmq({}) and redis({})".format(rabbitMQHost,redisHost))
+
+db_posts = redis.Redis(host=redisHost, db=1)
+db_sentiment = redis.Redis(host=redisHost, db=2)
 
 class Sentiment:
 
@@ -27,35 +33,35 @@ class Sentiment:
         self.submissions = {}
 
     ## Remove in final version
-    def connect_reddit(self):
-        try:
-            self.reddit = praw.Reddit(
-                client_id=self.auth_param['client_id'],
-                client_secret=self.auth_param['client_secret'],
-                user_agent="sentiment"
-            )
-            print("Connection to Reddit successful.")
-        except:
-            print("Error connecting to Reddit.")
+    # def connect_reddit(self):
+    #     try:
+    #         self.reddit = praw.Reddit(
+    #             client_id=self.auth_param['client_id'],
+    #             client_secret=self.auth_param['client_secret'],
+    #             user_agent="sentiment"
+    #         )
+    #         print("Connection to Reddit successful.")
+    #     except:
+    #         print("Error connecting to Reddit.")
 
     ## Replace with Firebase retrieval code
-    def get_submissions(self):
-        self.submissions = {
-            "id": [],
-            "title": [],
-            "body": [],
-            "comm_num": [],
-            "url": []
-        }
+    # def get_submissions(self):
+    #     self.submissions = {
+    #         "id": [],
+    #         "title": [],
+    #         "body": [],
+    #         "comm_num": [],
+    #         "url": []
+    #     }
 
-        for submission in self.reddit.subreddit(self.sub).top(limit=self.limit):
-            self.submissions['id'].append(submission.id)
-            self.submissions['title'].append(submission.title)
-            self.submissions['body'].append(submission.selftext)
-            self.submissions['comm_num'].append(submission.num_comments)
-            self.submissions['url'].append(submission.url)
+    #     for submission in self.reddit.subreddit(self.sub).top(limit=self.limit):
+    #         self.submissions['id'].append(submission.id)
+    #         self.submissions['title'].append(submission.title)
+    #         self.submissions['body'].append(submission.selftext)
+    #         self.submissions['comm_num'].append(submission.num_comments)
+    #         self.submissions['url'].append(submission.url)
 
-        self.submissions = pd.DataFrame(self.submissions)
+    #     self.submissions = pd.DataFrame(self.submissions)
 
     def compute_sentiment(self):
         senti_count = {
@@ -68,7 +74,7 @@ class Sentiment:
 
         for i in range(len(self.submissions)):
             post = self.submissions.loc[i]
-            text = post['body']
+            text = str(post['body'] + post['title'])
             score = sia.polarity_scores(text)
             score['headline'] = text
             sentiments.append(score)
@@ -104,8 +110,6 @@ class Sentiment:
     #         print(label)
 
     def worker(self):
-        self.connect_reddit()
-        self.get_submissions()
         self.compute_sentiment()
         # self.get_toxicity()
 
@@ -123,7 +127,11 @@ def get_rabbitMQ():
 
 def callback(ch, method, properties, body):
     body = jsonpickle.decode(body)
-    print(body)
+    submissions = list(db_posts.smembers(body['sub_name']))[0]
+    submissions = jsonpickle.decode(submissions)
+    sentiment_ob = Sentiment()
+    sentiment_ob.submissions = pd.DataFrame(submissions)
+    sentiment_ob.worker()
 
 def main():
     connection, channel = get_rabbitMQ()
@@ -141,13 +149,13 @@ def main():
     channel.start_consuming()
 
 if __name__ == "__main__":
-    # main()
-    auth_file = '../auth.json'
-    sub = 'learnpython'
-    limit = 100
+    main()
+    # auth_file = '../auth.json'
+    # sub = 'learnpython'
+    # limit = 100
     
-    with open(auth_file) as auth_param:
-        param = json.load(auth_param)
+    # with open(auth_file) as auth_param:
+    #     param = json.load(auth_param)
     
-    sentiment = Sentiment(param, sub, limit)
-    sentiment.worker()
+    # sentiment = Sentiment(param, sub, limit)
+    # sentiment.worker()

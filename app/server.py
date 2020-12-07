@@ -13,7 +13,7 @@ import praw
 
 redisHost = os.getenv("REDIS_HOST") or "localhost"
 rabbitMQHost = os.getenv("RABBITMQ_HOST") or "localhost"
-projectId = os.getenv("GCLOUD_PROJECT") or "datacenter-292401"
+#projectId = os.getenv("GCLOUD_PROJECT") or "datacenter-292401"
 
 app = Flask(__name__)
 
@@ -26,7 +26,7 @@ db_posts = redis.Redis(host=redisHost, db=1)
 db_sentiment = redis.Redis(host=redisHost, db=2)
 db_keywords = redis.Redis(host=redisHost, db=3)
 
-limit = 3
+limit = 50
 
 def get_rabbitMQ():
     try:
@@ -65,7 +65,7 @@ def get_submissions(sub, limit):
         submissions['title'].append(submission.title)
         submissions['body'].append(submission.selftext)
 
-    submissions = pd.DataFrame(submissions)
+    #submissions = pd.DataFrame(submissions)
     return submissions
 
 ## Flask app routes
@@ -75,14 +75,17 @@ def hello():
 
 @app.route('/sentiment/<string:sub_name>', methods=['GET'])
 def sentiment(sub_name):
+    print("entered sentiment")
     connection, channel = get_rabbitMQ()
     if db_sentiment.exists(sub_name):
+        print("sentiment exists")
         message = {
             'sentiment': db_sentiment.smembers(sub_name)
         }
         message = jsonpickle.encode(message)
         return Response(response=message, status=200, mimetype='application/json')
     elif db_posts.exists(sub_name):
+        print("handle exists")
         message = {
             'sub_name': sub_name
         }
@@ -96,7 +99,30 @@ def sentiment(sub_name):
         connection.close()
         return Response(response=message, status=200, mimetype='application/json')
     else:
-        print('Post submissions to reddit')
+        
+        submissions = get_submissions(sub_name, limit)
+        submissions = jsonpickle.encode(submissions)
+        db_posts.sadd(sub_name, submissions)
+        db_posts.wait(1, 5)
+        if db_posts.exists(sub_name):
+            print("none exist")
+            message = {
+                'sub_name': sub_name
+            }
+
+            message = jsonpickle.encode(message)
+            channel.basic_publish(
+                exchange='redditHandle',
+                routing_key='worker_sentiment',
+                body=message
+            )
+            connection.close()
+            return Response(response=message, status=200, mimetype='application/json')
+        else:
+            print("failed")
+
+
+        
 
 @app.route('/keywords/<string:sub_name>', methods=['GET'])
 def keywords(sub_name):
@@ -121,7 +147,23 @@ def keywords(sub_name):
         connection.close()
         return Response(response=message, status=200, mimetype='application/json')
     else:
-        print('Post submissions to reddit')
+        submissions = get_submissions(sub_name, limit)
+        submissions = jsonpickle.encode(submissions)
+        db_posts.sadd(sub_name, submissions)
+        db_posts.wait(1, 5)
+        if db_posts.exists(sub_name):
+            message = {
+                'sub_name': sub_name
+            }
+
+            message = jsonpickle.encode(message)
+            channel.basic_publish(
+                exchange='redditHandle',
+                routing_key='worker_keywords',
+                body=message
+            )
+            connection.close()
+            return Response(response=message, status=200, mimetype='application/json')
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

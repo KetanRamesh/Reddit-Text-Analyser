@@ -11,9 +11,16 @@ import praw
 from gensim.summarization import keywords
 
 import pika
+import redis
 
 ## RabbitMQ connection
 rabbitMQHost = os.getenv("RABBITMQ_HOST") or "localhost"
+redisHost = os.getenv("REDIS_HOST") or "localhost"
+
+print("Connecting to rabbitmq({}) and redis({})".format(rabbitMQHost,redisHost))
+
+db_posts = redis.Redis(host=redisHost, db=1)
+db_sentiment = redis.Redis(host=redisHost, db=2)
 
 class Keywords:
 
@@ -23,6 +30,7 @@ class Keywords:
         self.limit = limit
         self.reddit = None
         self.freq_dict = {}
+        self.submissions = {}
 
     ## Remove in final version
     def connect_reddit(self):
@@ -72,21 +80,21 @@ class Keywords:
     def compute_keywords(self):
         for i in range(len(self.submissions)):
             post = self.submissions.loc[i]
-            text = post['title']
+            text = str(post['title'] + post['body'])
             keywords_list = self.extract_keywords(text)
             self.populate_dict(keywords_list)
 
         top_keywords = sorted(self.freq_dict.keys(), key=lambda k: self.freq_dict[k], reverse=True)
         
+        print(top_keywords)
         if len(top_keywords) < 10:
             return top_keywords
         
-        print(top_keywords[:10])
-        return top_keywords[:10]
+        print('Keywords: ')
+        print(top_keywords)
+        # return top_keywords[:10]
 
     def worker(self):
-        self.connect_reddit()
-        self.get_submissions()
         self.compute_keywords()
 
 def get_rabbitMQ():
@@ -103,10 +111,13 @@ def get_rabbitMQ():
 
 
 def callback(ch, method, properties, body):
-        body = jsonpickle.decode(body)
-        print(body)
-        # e = extract_keywords(body['sub_name'])
-        # e.keywords_main()
+    body = jsonpickle.decode(body)
+    submissions = list(db_posts.smembers(body['sub_name']))[0]
+    submissions = jsonpickle.decode(submissions)
+    print(submissions)
+    keywords_ob = Keywords()
+    keywords_ob.submissions = pd.DataFrame(submissions)
+    keywords_ob.worker()
 
 def main():
     connection, channel = get_rabbitMQ()
@@ -124,13 +135,13 @@ def main():
     channel.start_consuming()
 
 if __name__ == "__main__":
-    # main()
-    auth_file = '../auth.json'
-    sub = 'learnpython'
-    limit = 100
+    main()
+    # auth_file = '../auth.json'
+    # sub = 'learnpython'
+    # limit = 100
     
-    with open(auth_file) as auth_param:
-        param = json.load(auth_param)
+    # with open(auth_file) as auth_param:
+    #     param = json.load(auth_param)
     
-    keywords_ob = Keywords(param, sub, limit)
-    keywords_ob.worker()
+    # keywords_ob = Keywords(param, sub, limit)
+    # keywords_ob.worker()
