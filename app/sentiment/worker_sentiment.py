@@ -4,64 +4,25 @@ import os
 import json
 import jsonpickle
 import pandas as pd
-import datetime as dt
-
-import praw
-from praw.models import MoreComments
-# from detoxify import Detoxify
 
 import pika, redis
 
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
-## RabbitMQ connection
+## RabbitMQ and Redis connection
 rabbitMQHost = os.getenv("RABBITMQ_HOST") or "localhost"
 redisHost = os.getenv("REDIS_HOST") or "localhost"
 
 print("Connecting to rabbitmq({}) and redis({})".format(rabbitMQHost,redisHost))
 
+## Redis tables
 db_posts = redis.Redis(host=redisHost, db=1)
 db_sentiment = redis.Redis(host=redisHost, db=2)
 
 class Sentiment:
 
-    def __init__(self, param=None, sub=None, limit=None):
-        self.auth_param = param
-        self.sub = sub
-        self.limit = limit
-        self.reddit = None
-        self.submissions = {}
-
-    ## Remove in final version
-    # def connect_reddit(self):
-    #     try:
-    #         self.reddit = praw.Reddit(
-    #             client_id=self.auth_param['client_id'],
-    #             client_secret=self.auth_param['client_secret'],
-    #             user_agent="sentiment"
-    #         )
-    #         print("Connection to Reddit successful.")
-    #     except:
-    #         print("Error connecting to Reddit.")
-
-    ## Replace with Firebase retrieval code
-    # def get_submissions(self):
-    #     self.submissions = {
-    #         "id": [],
-    #         "title": [],
-    #         "body": [],
-    #         "comm_num": [],
-    #         "url": []
-    #     }
-
-    #     for submission in self.reddit.subreddit(self.sub).top(limit=self.limit):
-    #         self.submissions['id'].append(submission.id)
-    #         self.submissions['title'].append(submission.title)
-    #         self.submissions['body'].append(submission.selftext)
-    #         self.submissions['comm_num'].append(submission.num_comments)
-    #         self.submissions['url'].append(submission.url)
-
-    #     self.submissions = pd.DataFrame(self.submissions)
+    def __init__(self, submissions=None):
+        self.submissions = submissions
 
     def compute_sentiment(self):
         senti_count = {
@@ -94,24 +55,10 @@ class Sentiment:
                 senti_count['neutral'] += 1
         
         print(senti_count)
-
-    # def get_toxicity(self):
-    #     toxic_count = {
-    #         "very_toxic": 0,
-    #         "toxic": 0,
-    #         "hard_to_say": 0,
-    #         "not_toxic": 0
-    #     }
-
-    #     for i in range(len(self.submissions)):
-    #         post = self.submissions.loc[i]
-    #         text = post['title']
-    #         label = Detoxify('original').predict(text)
-    #         print(label)
+        return senti_count
 
     def worker(self):
-        self.compute_sentiment()
-        # self.get_toxicity()
+        return self.compute_sentiment()
 
 def get_rabbitMQ():
     try:
@@ -129,9 +76,11 @@ def callback(ch, method, properties, body):
     body = jsonpickle.decode(body)
     submissions = list(db_posts.smembers(body['sub_name']))[0]
     submissions = jsonpickle.decode(submissions)
-    sentiment_ob = Sentiment()
-    sentiment_ob.submissions = pd.DataFrame(submissions)
-    sentiment_ob.worker()
+    
+    sentiment_ob = Sentiment(pd.DataFrame(submissions))
+    senti_count = sentiment_ob.worker()
+    
+    db_sentiment.sadd(body['sub_name'], jsonpickle.encode(senti_count))
 
 def main():
     connection, channel = get_rabbitMQ()
@@ -149,13 +98,4 @@ def main():
     channel.start_consuming()
 
 if __name__ == "__main__":
-    main()
-    # auth_file = '../auth.json'
-    # sub = 'learnpython'
-    # limit = 100
-    
-    # with open(auth_file) as auth_param:
-    #     param = json.load(auth_param)
-    
-    # sentiment = Sentiment(param, sub, limit)
-    # sentiment.worker()
+    main()  

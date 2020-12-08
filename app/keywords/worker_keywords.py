@@ -4,64 +4,26 @@ import os
 import json
 import jsonpickle
 import pandas as pd
-import datetime as dt
-
-import praw
 
 from gensim.summarization import keywords
 
-import pika
-import redis
+import pika, redis
 
-## RabbitMQ connection
+## RabbitMQ and Redis connection
 rabbitMQHost = os.getenv("RABBITMQ_HOST") or "localhost"
 redisHost = os.getenv("REDIS_HOST") or "localhost"
 
 print("Connecting to rabbitmq({}) and redis({})".format(rabbitMQHost,redisHost))
 
+## Redis tables
 db_posts = redis.Redis(host=redisHost, db=1)
-db_sentiment = redis.Redis(host=redisHost, db=2)
+db_keywords = redis.Redis(host=redisHost, db=3)
 
 class Keywords:
 
-    def __init__(self, param=None, sub=None, limit=None):
-        self.auth_param = param
-        self.sub = sub
-        self.limit = limit
-        self.reddit = None
+    def __init__(self, submissions=None):
+        self.submissions = submissions
         self.freq_dict = {}
-        self.submissions = {}
-
-    ## Remove in final version
-    def connect_reddit(self):
-        try:
-            self.reddit = praw.Reddit(
-                client_id=self.auth_param['client_id'],
-                client_secret=self.auth_param['client_secret'],
-                user_agent="keywords"
-            )
-            print("Connection to Reddit successful.")
-        except:
-            print("Error connecting to Reddit.")
-
-    ## Replace with database retrieval
-    def get_submissions(self):
-        self.submissions = {
-            "id": [],
-            "title": [],
-            "body": [],
-            "comm_num": [],
-            "url": []
-        }
-
-        for submission in self.reddit.subreddit(self.sub).top(limit=self.limit):
-            self.submissions['id'].append(submission.id)
-            self.submissions['title'].append(submission.title)
-            self.submissions['body'].append(submission.selftext)
-            self.submissions['comm_num'].append(submission.num_comments)
-            self.submissions['url'].append(submission.url)
-
-        self.submissions = pd.DataFrame(self.submissions)
     
     def extract_keywords(self, text):
         try:
@@ -87,15 +49,14 @@ class Keywords:
         top_keywords = sorted(self.freq_dict.keys(), key=lambda k: self.freq_dict[k], reverse=True)
         
         print(top_keywords)
+        
         if len(top_keywords) < 10:
             return top_keywords
         
-        print('Keywords: ')
-        print(top_keywords)
-        # return top_keywords[:10]
+        return top_keywords[:10]
 
     def worker(self):
-        self.compute_keywords()
+        return self.compute_keywords()
 
 def get_rabbitMQ():
     try:
@@ -109,15 +70,15 @@ def get_rabbitMQ():
 
     return connection, channel
 
-
 def callback(ch, method, properties, body):
     body = jsonpickle.decode(body)
     submissions = list(db_posts.smembers(body['sub_name']))[0]
     submissions = jsonpickle.decode(submissions)
-    print(submissions)
-    keywords_ob = Keywords()
-    keywords_ob.submissions = pd.DataFrame(submissions)
-    keywords_ob.worker()
+    
+    keywords_ob = Keywords(pd.DataFrame(submissions))
+    top_keywords = keywords_ob.worker()
+    
+    db_keywords.sadd(body['sub_name'], jsonpickle.encode(top_keywords))
 
 def main():
     connection, channel = get_rabbitMQ()
@@ -136,12 +97,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    # auth_file = '../auth.json'
-    # sub = 'learnpython'
-    # limit = 100
-    
-    # with open(auth_file) as auth_param:
-    #     param = json.load(auth_param)
-    
-    # keywords_ob = Keywords(param, sub, limit)
-    # keywords_ob.worker()

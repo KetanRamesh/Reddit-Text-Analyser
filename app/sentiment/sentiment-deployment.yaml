@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sentiment
+spec:
+  selector:
+    matchLabels:
+      app: sentiment
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        app: sentiment
+    spec:
+      containers:
+      - name: master
+        image: us.gcr.io/wired-rhino-267706/docker-sentiment:2.0
+        resources:
+          requests:
+            cpu: 100m
+            memory: 400Mi
+        env:
+        - name: GET_HOSTS_FROM
+          value: dns
+        - name: RABBITMQ_HOST
+          value: rabbitmq
+        - name: REDIS_HOST
+          value: redis
+        ports:
+        - containerPort: 6000
