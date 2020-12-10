@@ -1,10 +1,10 @@
 all : worker-toxicity 
 
 worker-toxicity :
-	docker build -f Dockerfile-toxicity -t docker-toxicity:2.0 .
-	docker tag docker-toxicity:2.0 us.gcr.io/wired-rhino-267706/docker-toxicity:2.0
-	docker push us.gcr.io/wired-rhino-267706/docker-toxicity:2.0
-	kubectl apply -f toxicity-deployment.yaml
+	docker build -f Dockerfile-toxicity -t docker-toxicity:1.0 .
+	docker tag docker-toxicity:1.0 us.gcr.io/datacenter-292401/docker-toxicity:1.0
+	docker push us.gcr.io/datacenter-292401/docker-toxicity:1.0
+	# kubectl apply -f toxicity-deployment.yaml
 
 clean :
 	docker rmi -f $(docker images -a -q)

@@ -1,23 +1,20 @@
-##
-## You provide this
-##
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: keywords
+  name: frontend
 spec:
   selector:
     matchLabels:
-      app: keywords
-  replicas: 3
+      app: frontend
+  replicas: 1
   template:
     metadata:
       labels:
-        app: keywords
+        app: frontend
     spec:
       containers:
       - name: master
-        image: us.gcr.io/datacenter-292401/docker-keywords:1.0
+        image: us.gcr.io/datacenter-292401/docker-frontend:3.0
         resources:
           requests:
             cpu: 100m
@@ -30,4 +27,4 @@ spec:
         - name: REDIS_HOST
           value: redis
         ports:
-        - containerPort: 7000
+        - containerPort: 5000

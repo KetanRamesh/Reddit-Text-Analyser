@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: master
-        image: us.gcr.io/wired-rhino-267706/docker-server:2.0
+        image: us.gcr.io/datacenter-292401/docker-server:2.0
         resources:
           requests:
             cpu: 100m
